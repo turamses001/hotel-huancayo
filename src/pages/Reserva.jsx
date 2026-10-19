@@ -1,133 +1,137 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 
 export default function Reserva() {
-  const { id } = useParams() // Captura el ID de la URL
+  const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const [habitacion, setHabitacion] = useState(null)
-  const [paso, setPaso] = useState(1) // Paso 1: Fechas | Paso 2: Pago
+  const [paso, setPaso] = useState(1)
   
-  // Datos del formulario
-  const [llegada, setLlegada] = useState('')
-  const [salida, setSalida] = useState('')
+  const tipoParam = searchParams.get('tipo') || 'Matrimonial'
+  const cantidadParam = parseInt(searchParams.get('cant')) || 1
+  const llegadaParam = searchParams.get('llegada') || ''
+  const salidaParam = searchParams.get('salida') || ''
+
+  const [llegada, setLlegada] = useState(llegadaParam)
+  const [salida, setSalida] = useState(llegadaParam ? salidaParam : '')
+  const [clientePerfil, setClientePerfil] = useState(null)
+  const navigate = useNavigate()
   
-  // Tu número de WhatsApp real (cámbialo aquí)
   const numeroWhatsApp = "51999888777" 
+  const hoy = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
-    async function traerHabitacion() {
-      const { data, error } = await supabase
+    async function verificarYCargar() {
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) {
+        alert("Debes iniciar sesión para realizar una reserva.")
+        navigate('/cliente-auth')
+        return
+      }
+
+      const { data: perfil } = await supabase
+        .from('perfiles')
+        .select('*')
+        .eq('id', sessionData.session.user.id)
+        .single()
+      
+      if (perfil) setClientePerfil(perfil)
+
+      const { data: hab, error } = await supabase
         .from('habitaciones')
         .select('*')
         .eq('numero', id)
-        .single() // Solo queremos una habitación
+        .single()
       
-      if (!error) setHabitacion(data)
+      if (!error) setHabitacion(hab)
     }
-    traerHabitacion()
-  }, [id])
+    verificarYCargar()
+  }, [id, navigate])
 
-  if (!habitacion) return <div className="text-center p-10 text-xl font-bold">Cargando detalles...</div>
+  if (!habitacion || !clientePerfil) return <div className="text-center p-10 text-xl font-bold">Verificando credenciales...</div>
 
-  // Generar el mensaje automático para WhatsApp
-  const mensajeWA = `Hola Hotel Huancayo, quiero confirmar mi reserva para la Habitación ${habitacion.numero} (${habitacion.tipo}). Fechas: ${llegada} al ${salida}. Monto a pagar: S/ ${habitacion.precio}. ¡Aquí envío mi comprobante de Yape!`
+  const precioTotal = habitacion.precio * cantidadParam
+
+  const mensajeWA = `Hola Hotel Huancayo, soy ${clientePerfil.nombres} ${clientePerfil.apellidos} (DNI: ${clientePerfil.dni}). Deseo confirmar mi reserva por ${cantidadParam} habitación(es) tipo ${tipoParam}. Fechas: ${llegada} al ${salida}. Monto Total: S/ ${precioTotal}. Adjunto mi comprobante de Yape.`
   const linkWhatsApp = `https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(mensajeWA)}`
 
   return (
     <div className="min-h-screen bg-gray-100 py-10 px-4">
-      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-xl overflow-hidden">
-        
-        {/* Cabecera superior */}
+      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
         <div className="bg-blue-900 text-white p-6 text-center">
           <h2 className="text-3xl font-bold">Completar Reserva</h2>
-          <p className="mt-2 text-blue-200">Habitación {habitacion.numero} - {habitacion.tipo}</p>
+          <p className="mt-1 text-blue-200">Cliente: {clientePerfil.nombres} {clientePerfil.apellidos} (DNI: {clientePerfil.dni})</p>
+          <p className="mt-1 text-sm text-blue-300">{cantidadParam}x {tipoParam}</p>
         </div>
 
         <div className="p-8">
           {paso === 1 ? (
-            /* PASO 1: Selector de Fechas */
             <div className="space-y-6">
-              <h3 className="text-xl font-bold border-b pb-2">1. Elige tus fechas</h3>
+              <h3 className="text-xl font-bold border-b pb-2">1. Selecciona tus fechas</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-gray-700 font-bold mb-2">Check-in (Llegada)</label>
+                  <label className="block text-gray-700 font-bold mb-2">Check-in</label>
                   <input 
                     type="date" 
-                    value={llegada}
-                    onChange={(e) => setLlegada(e.target.value)}
-                    className="w-full border rounded-lg p-3"
+                    min={hoy}
+                    value={llegada} 
+                    onChange={(e) => setLlegada(e.target.value)} 
+                    className="w-full border rounded-lg p-3" 
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-700 font-bold mb-2">Check-out (Salida)</label>
+                  <label className="block text-gray-700 font-bold mb-2">Check-out</label>
                   <input 
                     type="date" 
-                    value={salida}
-                    onChange={(e) => setSalida(e.target.value)}
-                    className="w-full border rounded-lg p-3"
+                    min={llegada || hoy}
+                    value={salida} 
+                    onChange={(e) => setSalida(e.target.value)} 
+                    className="w-full border rounded-lg p-3" 
                   />
                 </div>
               </div>
 
-              <div className="bg-blue-50 p-4 rounded-lg flex justify-between items-center mt-6">
-                <span className="font-bold text-gray-700">Total a pagar:</span>
-                <span className="text-2xl font-black text-blue-900">S/ {habitacion.precio}</span>
+              <div className="bg-blue-50 p-4 rounded-xl flex justify-between items-center">
+                <div>
+                  <span className="text-xs text-gray-500 block">Cantidad seleccionada</span>
+                  <span className="font-bold text-gray-800">{cantidadParam} habitación(es)</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-gray-500 block">Total a pagar</span>
+                  <span className="text-2xl font-black text-blue-900">S/ {precioTotal}</span>
+                </div>
               </div>
 
-              <div className="flex gap-4 mt-8">
-                <Link to="/" className="w-1/3 text-center bg-gray-200 text-gray-800 font-bold py-3 rounded-lg hover:bg-gray-300">
-                  Volver
+              <div className="flex gap-4">
+                <Link to="/app/habitaciones" className="w-1/3 text-center bg-gray-200 text-gray-800 font-bold py-3 rounded-xl hover:bg-gray-300">
+                  Cancelar
                 </Link>
                 <button 
                   onClick={() => setPaso(2)}
-                  disabled={!llegada || !salida} // Se desactiva si no pone fechas
-                  className="w-2/3 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+                  disabled={!llegada || !salida}
+                  className="w-2/3 bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 disabled:bg-gray-300 transition"
                 >
                   Continuar al Pago
                 </button>
               </div>
             </div>
           ) : (
-            /* PASO 2: Pago con Yape */
             <div className="text-center space-y-6">
-              <h3 className="text-2xl font-bold text-gray-800">2. Realiza tu pago</h3>
-              <p className="text-gray-600">Escanea el código QR desde tu app de Yape para pagar <b>S/ {habitacion.precio}</b></p>
+              <h3 className="text-2xl font-bold text-gray-800">2. Pago con Yape</h3>
+              <p className="text-gray-600">Escanea el código QR y paga <b>S/ {precioTotal}</b> por tus {cantidadParam} habitaciones</p>
               
-              {/* Aquí va tu QR real. Por ahora uso una imagen de prueba */}
-              <img 
-                src="https://via.placeholder.com/300x300.png?text=TU+C%C3%93DIGO+QR+YAPE+AQU%C3%8D" 
-                alt="QR Yape" 
-                className="mx-auto rounded-lg shadow-md border-4 border-purple-600 w-64 h-64"
-              />
+              <img src="https://via.placeholder.com/250x250.png?text=QR+YAPE+HOTEL+HUANCAYO" alt="QR Yape" className="mx-auto rounded-xl shadow border-4 border-purple-600 w-56 h-56 object-cover" />
               
-              <div className="bg-purple-100 text-purple-900 p-4 rounded-lg inline-block font-bold">
-                Yape a nombre de: Hotel Huancayo SAC
-              </div>
-
-              <p className="text-sm text-gray-500 mt-4">
-                Una vez realizado el pago, presiona el botón para enviarnos la captura por WhatsApp y confirmar tu reserva.
-              </p>
-
-              <div className="flex gap-4 mt-6">
-                <button 
-                  onClick={() => setPaso(1)}
-                  className="w-1/3 bg-gray-200 text-gray-800 font-bold py-3 rounded-lg hover:bg-gray-300"
-                >
-                  Atrás
-                </button>
-                <a 
-                  href={linkWhatsApp} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="w-2/3 bg-green-500 text-white font-bold py-3 rounded-lg hover:bg-green-600 flex items-center justify-center gap-2"
-                >
-                  <span>💬 Validar por WhatsApp</span>
+              <div className="flex gap-4 pt-4">
+                <button onClick={() => setPaso(1)} className="w-1/3 bg-gray-200 font-bold py-3 rounded-xl hover:bg-gray-300">Atrás</button>
+                <a href={linkWhatsApp} target="_blank" rel="noopener noreferrer" className="w-2/3 bg-green-500 text-white font-bold py-3 rounded-xl hover:bg-green-600 flex items-center justify-center gap-2 shadow-lg">
+                  <span>💬 Enviar Reserva y Voucher</span>
                 </a>
               </div>
             </div>
           )}
         </div>
-
       </div>
     </div>
   )
